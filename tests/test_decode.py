@@ -26,11 +26,13 @@ MAC_117 = "d4:47:5a:01:b4:ae"
 MAC_126 = "d4:47:5a:01:b4:b0"
 
 
-def _replies_call(replies: dict[str, list[str]]):
+def _replies_call(replies: dict[str, list[str]], asked: list[str] | None = None):
     """Answer from captured replies; registers the capture lacks are unsupported."""
 
     async def call(register: str, *data: int) -> list[int]:
         key = register + (":" + ",".join(map(str, data)) if data else "")
+        if asked is not None:
+            asked.append(key)
         if key not in replies:
             raise decode.UnsupportedRegister(key)
         return [int(word, 16) for word in replies[key]]
@@ -86,6 +88,19 @@ def test_network_coordinator_side() -> None:
     # 1.17.5 answers HTTP 400 to ethInfo: no Ethernet port state, no failure.
     assert status.eth_ports is None
     assert not status.eth_link_up and status.eth_speed_mbps is None
+
+
+def test_ethinfo_not_asked_again() -> None:
+    """Once a firmware version has answered 400, ethInfo is not asked again."""
+    asked: list[str] = []
+    call = _replies_call(_replies("ecb7250_117.json"), asked)
+    status = asyncio.run(decode.read_status(call, no_eth_firmware={"1.17.5"}))
+    assert status.eth_ports is None
+    assert not any(key.startswith(decode.REG_ETH_INFO) for key in asked)
+    # A different (upgraded) version is asked.
+    asked.clear()
+    asyncio.run(decode.read_status(call, no_eth_firmware={"1.17.4"}))
+    assert any(key.startswith(decode.REG_ETH_INFO) for key in asked)
 
 
 def test_both_ends_agree() -> None:
@@ -189,6 +204,12 @@ def test_firmware_118_ethernet_ports() -> None:
     )
     assert status.eth_link_up
     assert status.eth_speed_mbps == 2500
+
+
+def test_mxl370x_has_one_ethernet_port() -> None:
+    replies = _replies_118("ecb7250_117.json", [1, 2, 1, 1, 4, 1])
+    status = asyncio.run(decode.read_status(_replies_call(replies), chip="MXL370x"))
+    assert status.eth_ports == (decode.EthPort(True, 1000, True),)
 
 
 def test_ethinfo_short_reply_keeps_the_rest() -> None:

@@ -11,7 +11,7 @@ This module has no Home Assistant dependency so it can be tested on its own.
 
 from __future__ import annotations
 
-from collections.abc import Awaitable, Callable
+from collections.abc import Awaitable, Callable, Collection
 from dataclasses import dataclass
 
 # call(register, *data) -> reply words as integers
@@ -40,7 +40,7 @@ _MAX_PACKETS_PER_S = 2_000_000
 
 CHIPS = {0x15: "MXL370x", 0x16: "MXL371x"}
 # Ethernet (SGMII) ports per chip, as in devStatus.html.
-_ETH_PORTS = {0x15: 1, 0x16: 2}
+_ETH_PORTS = {"MXL370x": 1, "MXL371x": 2}
 
 # ethInfo speed index -> Mbit/s; 3 is "Auto-Neg" (still negotiating), 5 "NA".
 _ETH_SPEED_MBPS = {0: 10, 1: 100, 2: 1000, 4: 2500}
@@ -389,18 +389,24 @@ async def read_identity(call: Call) -> Identity:
     )
 
 
-async def _eth_info(call: Call) -> tuple[EthPort, ...] | None:
+async def _eth_info(call: Call, chip: str) -> tuple[EthPort, ...] | None:
     """Ethernet port state, or None when the firmware lacks ethInfo."""
     try:
         words = await call(REG_ETH_INFO, 0)
     except UnsupportedRegister:
         return None
-    chip = (await call(REG_CHIP_ID, 0))[0]
     return parse_eth_info(words, _ETH_PORTS.get(chip, 1))
 
 
-async def read_status(call: Call) -> Status:
-    """Read link state, channels, PHY rates, frame counters and Ethernet ports."""
+async def read_status(
+    call: Call, *, chip: str = "MXL371x", no_eth_firmware: Collection[str] = ()
+) -> Status:
+    """Read link state, channels, PHY rates, frame counters and Ethernet ports.
+
+    ``chip`` is ``Identity.chip``. ethInfo exists from firmware 1.18 on; older
+    firmware answers HTTP 400, and versions in ``no_eth_firmware`` (already
+    seen to lack it) are not asked again.
+    """
     local = parse_local_info(await call(REG_LOCAL_INFO))
     frames = parse_frame_info(await call(REG_FRAME_INFO, 0))
     phy = await call(REG_PHY_INFO)
@@ -421,7 +427,7 @@ async def read_status(call: Call) -> Status:
 
     privacy_mask = (await call(REG_PRIVACY_MASK))[0]
     enhanced_privacy = (await call(REG_ENHANCED_PRIVACY))[0]
-    eth = await _eth_info(call)
+    eth = None if local.firmware in no_eth_firmware else await _eth_info(call, chip)
 
     beacon = phy[1]
     offset = _PRIMARY_OFFSET_MHZ.get(local.primary_offset)

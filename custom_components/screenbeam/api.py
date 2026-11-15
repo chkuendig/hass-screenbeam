@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import asyncio
-from collections.abc import Iterator
+from collections.abc import Collection, Iterator
 from contextlib import contextmanager
 from http import HTTPStatus
 import json
@@ -101,7 +101,9 @@ class ScreenBeamClient:
         with self._short_reply():
             return await read_identity(self.call)
 
-    async def async_get_status(self) -> Status:
+    async def async_get_status(
+        self, *, chip: str, no_eth_firmware: Collection[str] = ()
+    ) -> Status:
         """Read link state, PHY rates, counters and Ethernet ports."""
         with self._short_reply():
-            return await read_status(self.call)
+            return await read_status(self.call, chip=chip, no_eth_firmware=no_eth_firmware)

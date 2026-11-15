@@ -54,6 +54,9 @@ class ScreenBeamCoordinator(DataUpdateCoordinator[ScreenBeamData]):
         )
         self.client = client
         self._previous: tuple[Status, float] | None = None
+        # Firmware versions that answered HTTP 400 to ethInfo (before 1.18),
+        # so they are asked once per setup instead of on every poll.
+        self._no_eth_firmware: set[str] = set()
         # Seeded from the restored "Last counter reset" sensor.
         self.counters_reset_at: datetime | None = None
 
@@ -73,12 +76,16 @@ class ScreenBeamCoordinator(DataUpdateCoordinator[ScreenBeamData]):
 
     async def _async_update_data(self) -> ScreenBeamData:
         try:
-            status = await self.client.async_get_status()
+            status = await self.client.async_get_status(
+                chip=self.identity.chip, no_eth_firmware=self._no_eth_firmware
+            )
         except ScreenBeamAuthError as err:
             raise ConfigEntryAuthFailed(str(err)) from err
         except ScreenBeamError as err:
             raise UpdateFailed(str(err)) from err
 
+        if status.eth_ports is None:
+            self._no_eth_firmware.add(status.firmware)
         if self.data is not None and (
             status.firmware != self.identity.firmware
             or (status.eth_ports is None) != (self.data.status.eth_ports is None)
