@@ -25,6 +25,11 @@ REG_FMR = "0/0x1D"
 REG_PHY_INFO = "0/0x24"
 REG_M25_PHY_INFO = "0/0x7f"
 REG_CHIP_ID = "1/0x303/GET"
+REG_PRIVACY_MASK = "0/0x1059/GET"  # legacy privacy, one bit per band
+REG_ENHANCED_PRIVACY = "0/0x130D/GET"  # MoCA 2.x enhanced privacy, bit 2
+
+# Gigabit Ethernet tops out near 1.49 million frames/s.
+_MAX_PACKETS_PER_S = 2_000_000
 
 CHIPS = {0x15: "MXL370x", 0x16: "MXL371x"}
 
@@ -94,7 +99,12 @@ def parse_local_info(words: list[int]) -> LocalInfo:
 
 @dataclass(frozen=True)
 class FrameCounters:
-    """Ethernet frame counters (frame-info register 0x14), 32-bit, wrapping."""
+    """Ethernet frame counters (frame-info register 0x14), 32 bits wide.
+
+    The register also carries what look like millisecond and centisecond
+    clocks, but their word offsets differ between adapters, so they are not
+    used.
+    """
 
     tx_good: int
     tx_bad: int
@@ -114,6 +124,35 @@ def parse_frame_info(words: list[int]) -> FrameCounters:
         rx_bad=words[42],
         rx_dropped=words[51],
     )
+
+
+@dataclass(frozen=True)
+class PacketRates:
+    """Ethernet frames per second between two polls."""
+
+    tx: float
+    rx: float
+
+
+def counters_reset(previous: FrameCounters, current: FrameCounters) -> bool:
+    """Whether the counters went backwards, i.e. were reset (or wrapped)."""
+    return current.tx_good < previous.tx_good or current.rx_good < previous.rx_good
+
+
+def packet_rates(
+    previous: FrameCounters, current: FrameCounters, elapsed_s: float
+) -> PacketRates | None:
+    """Frames per second between two readings ``elapsed_s`` apart.
+
+    None when no time passed or the counters were reset in between.
+    """
+    if elapsed_s <= 0 or counters_reset(previous, current):
+        return None
+    tx = (current.tx_good - previous.tx_good) / elapsed_s
+    rx = (current.rx_good - previous.rx_good) / elapsed_s
+    if tx > _MAX_PACKETS_PER_S or rx > _MAX_PACKETS_PER_S:
+        return None
+    return PacketRates(tx=tx, rx=rx)
 
 
 def _rate_100mhz(gap: int, ofdmb: int) -> int:
@@ -230,6 +269,7 @@ class Status:
     bonded_channels: int | None
     frames: FrameCounters
     rates: tuple[PhyRate, ...]
+    encrypted: bool
 
     @property
     def is_network_coordinator(self) -> bool:
@@ -305,6 +345,9 @@ async def read_status(call: Call) -> Status:
             for peer, (nper, vlper) in parse_fmr(fmr, node, versions, nc_version).items():
                 rates.append(PhyRate(macs[node], macs[peer], nper, vlper))
 
+    privacy_mask = (await call(REG_PRIVACY_MASK))[0]
+    enhanced_privacy = (await call(REG_ENHANCED_PRIVACY))[0]
+
     beacon = phy[1]
     offset = _PRIMARY_OFFSET_MHZ.get(local.primary_offset)
     bonded = m25[3] if len(m25) > 3 and m25[3] else None
@@ -321,4 +364,5 @@ async def read_status(call: Call) -> Status:
         bonded_channels=bonded if local.link_up else None,
         frames=frames,
         rates=tuple(rates),
+        encrypted=bool(privacy_mask) or bool(enhanced_privacy >> 2 & 1),
     )

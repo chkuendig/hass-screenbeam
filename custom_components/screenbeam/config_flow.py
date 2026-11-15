@@ -16,6 +16,9 @@ from homeassistant.helpers.selector import (
     NumberSelector,
     NumberSelectorConfig,
     NumberSelectorMode,
+    SelectSelector,
+    SelectSelectorConfig,
+    SelectSelectorMode,
     TextSelector,
     TextSelectorConfig,
     TextSelectorType,
@@ -24,9 +27,11 @@ from homeassistant.helpers.service_info.dhcp import DhcpServiceInfo
 
 from .api import ScreenBeamAuthError, ScreenBeamClient, ScreenBeamError
 from .const import (
+    CONF_MODEL,
     DEFAULT_SCAN_INTERVAL,
     DEFAULT_USERNAME,
     DOMAIN,
+    KNOWN_MODELS,
     MAX_SCAN_INTERVAL,
     MIN_SCAN_INTERVAL,
 )
@@ -174,16 +179,24 @@ class ScreenBeamConfigFlow(ConfigFlow, domain=DOMAIN):
 
 
 class ScreenBeamOptionsFlow(OptionsFlow):
-    """Options: how often to poll."""
+    """Options: the model printed on the label, and how often to poll."""
 
     async def async_step_init(self, user_input: dict[str, Any] | None = None) -> ConfigFlowResult:
         """Manage the options."""
         if user_input is not None:
-            return self.async_create_entry(
-                data={CONF_SCAN_INTERVAL: int(user_input[CONF_SCAN_INTERVAL])}
-            )
+            data: dict[str, Any] = {CONF_SCAN_INTERVAL: int(user_input[CONF_SCAN_INTERVAL])}
+            if model := (user_input.get(CONF_MODEL) or "").strip():
+                data[CONF_MODEL] = model
+            return self.async_create_entry(data=data)
         schema = vol.Schema(
             {
+                vol.Optional(CONF_MODEL): SelectSelector(
+                    SelectSelectorConfig(
+                        options=KNOWN_MODELS,
+                        custom_value=True,
+                        mode=SelectSelectorMode.DROPDOWN,
+                    )
+                ),
                 vol.Required(CONF_SCAN_INTERVAL, default=DEFAULT_SCAN_INTERVAL): NumberSelector(
                     NumberSelectorConfig(
                         min=MIN_SCAN_INTERVAL,

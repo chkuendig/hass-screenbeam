@@ -7,7 +7,7 @@ from homeassistant.helpers.device_registry import CONNECTION_NETWORK_MAC, Device
 from homeassistant.helpers.entity import EntityDescription
 from homeassistant.helpers.update_coordinator import CoordinatorEntity
 
-from .const import DOMAIN, MANUFACTURER
+from .const import CONF_MODEL, DOMAIN, MANUFACTURER
 from .coordinator import ScreenBeamCoordinator
 
 
@@ -29,8 +29,9 @@ class ScreenBeamEntity(CoordinatorEntity[ScreenBeamCoordinator]):
             identifiers={(DOMAIN, entry.unique_id)},
             connections={(CONNECTION_NETWORK_MAC, entry.unique_id)},
             manufacturer=MANUFACTURER,
-            model=f"MoCA {identity.node_version} adapter",
-            hw_version=identity.chip,
+            # The adapters do not report their model; it is set in the options.
+            model=entry.options.get(CONF_MODEL) or f"MoCA {identity.node_version} adapter",
+            hw_version=None,  # was the chipset before 0.2.0; it is in diagnostics
             sw_version=identity.firmware,
             name=entry.title,
             configuration_url=f"http://{entry.data[CONF_HOST]}/",

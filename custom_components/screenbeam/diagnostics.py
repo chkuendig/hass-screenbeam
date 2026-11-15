@@ -22,5 +22,9 @@ async def async_get_config_entry_diagnostics(
     return {
         "entry": async_redact_data(entry.as_dict(), TO_REDACT),
         "identity": asdict(coordinator.identity),
-        "status": asdict(coordinator.data) if coordinator.data else None,
+        "status": asdict(coordinator.data.status) if coordinator.data else None,
+        "packet_rates": asdict(coordinator.data.rates)
+        if coordinator.data and coordinator.data.rates
+        else None,
+        "counters_reset_at": coordinator.counters_reset_at,
     }

@@ -2,8 +2,10 @@
 
 from __future__ import annotations
 
-from datetime import timedelta
+from dataclasses import dataclass
+from datetime import datetime, timedelta
 import logging
+import time
 
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.const import CONF_SCAN_INTERVAL
@@ -11,17 +13,27 @@ from homeassistant.core import HomeAssistant
 from homeassistant.exceptions import ConfigEntryAuthFailed
 from homeassistant.helpers.device_registry import format_mac
 from homeassistant.helpers.update_coordinator import DataUpdateCoordinator, UpdateFailed
+from homeassistant.util import dt as dt_util
 
 from .api import ScreenBeamAuthError, ScreenBeamClient, ScreenBeamError
 from .const import DEFAULT_SCAN_INTERVAL, DOMAIN
-from .decode import Identity, Status
+from .decode import Identity, PacketRates, Status, counters_reset, packet_rates
 
 _LOGGER = logging.getLogger(__name__)
 
 type ScreenBeamConfigEntry = ConfigEntry[ScreenBeamCoordinator]
 
 
-class ScreenBeamCoordinator(DataUpdateCoordinator[Status]):
+@dataclass(frozen=True)
+class ScreenBeamData:
+    """One poll plus what is derived from the previous one."""
+
+    status: Status
+    rates: PacketRates | None
+    counters_reset_at: datetime | None
+
+
+class ScreenBeamCoordinator(DataUpdateCoordinator[ScreenBeamData]):
     """Polls one adapter."""
 
     config_entry: ScreenBeamConfigEntry
@@ -41,6 +53,9 @@ class ScreenBeamCoordinator(DataUpdateCoordinator[Status]):
             ),
         )
         self.client = client
+        self._previous: tuple[Status, float] | None = None
+        # Seeded from the restored "Last counter reset" sensor.
+        self.counters_reset_at: datetime | None = None
 
     async def _async_setup(self) -> None:
         try:
@@ -56,10 +71,21 @@ class ScreenBeamCoordinator(DataUpdateCoordinator[Status]):
                 f" {self.config_entry.unique_id}; reconfigure the address"
             )
 
-    async def _async_update_data(self) -> Status:
+    async def _async_update_data(self) -> ScreenBeamData:
         try:
-            return await self.client.async_get_status()
+            status = await self.client.async_get_status()
         except ScreenBeamAuthError as err:
             raise ConfigEntryAuthFailed(str(err)) from err
         except ScreenBeamError as err:
             raise UpdateFailed(str(err)) from err
+
+        now = time.monotonic()
+        rates = None
+        if self._previous is not None:
+            previous, then = self._previous
+            if counters_reset(previous.frames, status.frames):
+                self.counters_reset_at = dt_util.utcnow().replace(microsecond=0)
+            else:
+                rates = packet_rates(previous.frames, status.frames, now - then)
+        self._previous = (status, now)
+        return ScreenBeamData(status, rates, self.counters_reset_at)

@@ -71,6 +71,8 @@ def test_network_coordinator_side() -> None:
     assert 1400 < status.tx_rate < 2600
     assert 1400 < status.rx_rate < 2600
     assert status.frames.tx_good > 0 and status.frames.rx_good > 0
+    # Enhanced privacy (MoCA 2.x) is on in the captures; legacy privacy is off.
+    assert status.encrypted
 
 
 def test_both_ends_agree() -> None:
@@ -101,6 +103,34 @@ def test_link_down_has_no_rates() -> None:
     assert status.rates == ()
     assert status.tx_rate is None and status.rx_rate is None
     assert status.primary_channel_mhz is None
+
+
+def _frames(tx: int, rx: int):
+    return decode.FrameCounters(tx, 0, 0, rx, 0, 0)
+
+
+def test_packet_rates() -> None:
+    rates = decode.packet_rates(_frames(1000, 5000), _frames(7000, 35000), 60.0)
+    assert rates == decode.PacketRates(tx=100.0, rx=500.0)
+    assert decode.packet_rates(_frames(1, 1), _frames(1, 1), 0) is None
+
+
+def test_counter_reset_is_detected() -> None:
+    before, after = _frames(4_000_000, 9_000_000), _frames(1_200, 3_400)
+    assert decode.counters_reset(before, after)
+    assert decode.packet_rates(before, after, 60.0) is None
+    assert not decode.counters_reset(after, after)
+
+
+def test_encryption_off() -> None:
+    replies = json.loads((ROOT / "fixtures" / "ecb7250_126.json").read_text())
+    replies["0/0x130D/GET"] = ["0x00000003"]  # enhanced privacy bit (2) clear
+
+    async def call(register: str, *data: int) -> list[int]:
+        key = register + (":" + ",".join(map(str, data)) if data else "")
+        return [int(word, 16) for word in replies[key]]
+
+    assert not asyncio.run(decode.read_status(call)).encrypted
 
 
 if __name__ == "__main__":

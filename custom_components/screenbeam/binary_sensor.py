@@ -36,6 +36,12 @@ BINARY_SENSORS: tuple[ScreenBeamBinarySensorDescription, ...] = (
         is_on_fn=lambda s: s.link_up and s.node_count > 1,
     ),
     ScreenBeamBinarySensorDescription(
+        key="coax_encryption",
+        translation_key="coax_encryption",
+        entity_category=EntityCategory.DIAGNOSTIC,
+        is_on_fn=lambda s: s.encrypted,
+    ),
+    ScreenBeamBinarySensorDescription(
         key="network_coordinator",
         translation_key="network_coordinator",
         entity_category=EntityCategory.DIAGNOSTIC,
@@ -62,4 +68,4 @@ class ScreenBeamBinarySensor(ScreenBeamEntity, BinarySensorEntity):
     @property
     def is_on(self) -> bool:
         """Return the state."""
-        return self.entity_description.is_on_fn(self.coordinator.data)
+        return self.entity_description.is_on_fn(self.coordinator.data.status)
