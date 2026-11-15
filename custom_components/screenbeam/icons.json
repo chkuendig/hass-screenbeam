@@ -1,0 +1,50 @@
+{
+  "entity": {
+    "binary_sensor": {
+      "network_coordinator": {
+        "default": "mdi:account-network-outline"
+      }
+    },
+    "sensor": {
+      "tx_phy_rate": {
+        "default": "mdi:upload-network-outline"
+      },
+      "rx_phy_rate": {
+        "default": "mdi:download-network-outline"
+      },
+      "moca_nodes": {
+        "default": "mdi:lan"
+      },
+      "tx_packets": {
+        "default": "mdi:upload"
+      },
+      "rx_packets": {
+        "default": "mdi:download"
+      },
+      "tx_errors": {
+        "default": "mdi:alert-circle-outline"
+      },
+      "rx_errors": {
+        "default": "mdi:alert-circle-outline"
+      },
+      "tx_dropped": {
+        "default": "mdi:delete-outline"
+      },
+      "rx_dropped": {
+        "default": "mdi:delete-outline"
+      },
+      "moca_version": {
+        "default": "mdi:information-outline"
+      },
+      "beacon_channel": {
+        "default": "mdi:sine-wave"
+      },
+      "primary_channel": {
+        "default": "mdi:sine-wave"
+      },
+      "bonded_channels": {
+        "default": "mdi:format-list-numbered"
+      }
+    }
+  }
+}

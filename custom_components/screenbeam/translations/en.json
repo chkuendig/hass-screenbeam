@@ -1,0 +1,116 @@
+{
+  "config": {
+    "flow_title": "{host}",
+    "step": {
+      "user": {
+        "description": "Connect to a ScreenBeam MoCA (Ethernet over coax) adapter. Add each adapter of the pair separately.",
+        "data": {
+          "host": "Host",
+          "username": "Username",
+          "password": "Password"
+        },
+        "data_description": {
+          "host": "IP address or hostname of the adapter's web interface.",
+          "username": "Login of the adapter's web interface.",
+          "password": "Password of the adapter's web interface."
+        }
+      },
+      "discovery_confirm": {
+        "description": "A ScreenBeam adapter was found at {host}. Enter the login of its web interface.",
+        "data": {
+          "username": "Username",
+          "password": "Password"
+        }
+      },
+      "reauth_confirm": {
+        "description": "The adapter at {host} rejected the login. Enter the current one.",
+        "data": {
+          "username": "Username",
+          "password": "Password"
+        }
+      },
+      "reconfigure": {
+        "description": "Change the address or login of the adapter.",
+        "data": {
+          "host": "Host",
+          "username": "Username",
+          "password": "Password"
+        }
+      }
+    },
+    "error": {
+      "cannot_connect": "Failed to connect",
+      "invalid_auth": "Invalid authentication",
+      "unknown": "Unexpected error"
+    },
+    "abort": {
+      "already_configured": "Device is already configured",
+      "reauth_successful": "Re-authentication was successful",
+      "reconfigure_successful": "Re-configuration was successful",
+      "unique_id_mismatch": "This address belongs to a different adapter."
+    }
+  },
+  "options": {
+    "step": {
+      "init": {
+        "data": {
+          "scan_interval": "Poll interval"
+        },
+        "data_description": {
+          "scan_interval": "How often to read the adapter. One poll is about a dozen small requests."
+        }
+      }
+    }
+  },
+  "entity": {
+    "binary_sensor": {
+      "coax_link": {
+        "name": "Coax link"
+      },
+      "network_coordinator": {
+        "name": "Network coordinator"
+      }
+    },
+    "sensor": {
+      "tx_phy_rate": {
+        "name": "Coax TX PHY rate"
+      },
+      "rx_phy_rate": {
+        "name": "Coax RX PHY rate"
+      },
+      "moca_nodes": {
+        "name": "MoCA nodes"
+      },
+      "tx_packets": {
+        "name": "Ethernet TX packets"
+      },
+      "rx_packets": {
+        "name": "Ethernet RX packets"
+      },
+      "tx_errors": {
+        "name": "Ethernet TX errors"
+      },
+      "rx_errors": {
+        "name": "Ethernet RX errors"
+      },
+      "tx_dropped": {
+        "name": "Ethernet TX dropped"
+      },
+      "rx_dropped": {
+        "name": "Ethernet RX dropped"
+      },
+      "moca_version": {
+        "name": "MoCA version"
+      },
+      "beacon_channel": {
+        "name": "Beacon channel"
+      },
+      "primary_channel": {
+        "name": "Primary channel"
+      },
+      "bonded_channels": {
+        "name": "Bonded channels"
+      }
+    }
+  }
+}
