@@ -9,6 +9,12 @@
         "state": {
           "off": "mdi:lock-open-variant"
         }
+      },
+      "ethernet_link": {
+        "default": "mdi:ethernet",
+        "state": {
+          "off": "mdi:ethernet-off"
+        }
       }
     },
     "sensor": {
@@ -59,6 +65,9 @@
       },
       "counters_reset": {
         "default": "mdi:restart"
+      },
+      "ethernet_speed": {
+        "default": "mdi:speedometer"
       }
     }
   }

@@ -19,8 +19,8 @@ from homeassistant.core import HomeAssistant
 from homeassistant.helpers.entity_platform import AddConfigEntryEntitiesCallback
 from homeassistant.helpers.typing import StateType
 
-from .coordinator import ScreenBeamConfigEntry, ScreenBeamCoordinator, ScreenBeamData
-from .entity import ScreenBeamEntity
+from .coordinator import ScreenBeamConfigEntry, ScreenBeamData
+from .entity import ScreenBeamEntity, eth_ports_attr
 
 PARALLEL_UPDATES = 0  # the coordinator does the polling
 
@@ -123,6 +123,18 @@ SENSORS: tuple[ScreenBeamSensorDescription, ...] = (
     ),
 )
 
+# Needs ethInfo (firmware 1.18+).
+ETHERNET_SPEED = ScreenBeamSensorDescription(
+    key="ethernet_speed",
+    translation_key="ethernet_speed",
+    native_unit_of_measurement=UnitOfDataRate.MEGABITS_PER_SECOND,
+    device_class=SensorDeviceClass.DATA_RATE,
+    state_class=SensorStateClass.MEASUREMENT,
+    suggested_display_precision=0,
+    value_fn=lambda d: d.status.eth_speed_mbps,
+    attrs_fn=lambda d: {"ports": eth_ports_attr(d.status)},
+)
+
 COUNTERS_RESET = ScreenBeamSensorDescription(
     key="counters_reset",
     translation_key="counters_reset",
@@ -139,12 +151,13 @@ async def async_setup_entry(
 ) -> None:
     """Set up sensors for an adapter."""
     coordinator = entry.runtime_data
-    async_add_entities(
-        [
-            *(ScreenBeamSensor(coordinator, d) for d in SENSORS),
-            ScreenBeamCountersResetSensor(coordinator, COUNTERS_RESET),
-        ]
-    )
+    entities: list[SensorEntity] = [
+        *(ScreenBeamSensor(coordinator, d) for d in SENSORS),
+        ScreenBeamCountersResetSensor(coordinator, COUNTERS_RESET),
+    ]
+    if coordinator.data.status.eth_ports is not None:
+        entities.append(ScreenBeamSensor(coordinator, ETHERNET_SPEED))
+    async_add_entities(entities)
 
 
 class ScreenBeamSensor(ScreenBeamEntity, SensorEntity):
@@ -157,13 +170,6 @@ class ScreenBeamSensor(ScreenBeamEntity, SensorEntity):
         """Return the sensor value."""
         return self.entity_description.value_fn(self.coordinator.data)
 
-    @property
-    def extra_state_attributes(self) -> dict[str, Any] | None:
-        """Return per-peer details where there are any."""
-        if self.entity_description.attrs_fn is None:
-            return None
-        return self.entity_description.attrs_fn(self.coordinator.data)
-
 
 class ScreenBeamCountersResetSensor(ScreenBeamSensor, RestoreSensor):
     """When the frame counters last went backwards (restart or wrap).
@@ -171,10 +177,6 @@ class ScreenBeamCountersResetSensor(ScreenBeamSensor, RestoreSensor):
     Only resets seen while Home Assistant is polling are recorded, so the
     value is kept across Home Assistant restarts.
     """
-
-    def __init__(self, coordinator: ScreenBeamCoordinator, description) -> None:
-        """Initialise the sensor."""
-        super().__init__(coordinator, description)
 
     async def async_added_to_hass(self) -> None:
         """Restore the last recorded reset."""

@@ -1,9 +1,10 @@
-"""Binary sensors of ScreenBeam adapters: coax link and coordinator role."""
+"""Binary sensors of ScreenBeam adapters: links, encryption and coordinator role."""
 
 from __future__ import annotations
 
 from collections.abc import Callable
 from dataclasses import dataclass
+from typing import Any
 
 from homeassistant.components.binary_sensor import (
     BinarySensorDeviceClass,
@@ -14,9 +15,9 @@ from homeassistant.const import EntityCategory
 from homeassistant.core import HomeAssistant
 from homeassistant.helpers.entity_platform import AddConfigEntryEntitiesCallback
 
-from .coordinator import ScreenBeamConfigEntry
+from .coordinator import ScreenBeamConfigEntry, ScreenBeamData
 from .decode import Status
-from .entity import ScreenBeamEntity
+from .entity import ScreenBeamEntity, eth_ports_attr
 
 PARALLEL_UPDATES = 0
 
@@ -26,6 +27,7 @@ class ScreenBeamBinarySensorDescription(BinarySensorEntityDescription):
     """Describes a ScreenBeam binary sensor."""
 
     is_on_fn: Callable[[Status], bool]
+    attrs_fn: Callable[[ScreenBeamData], dict[str, Any]] | None = None
 
 
 BINARY_SENSORS: tuple[ScreenBeamBinarySensorDescription, ...] = (
@@ -49,6 +51,15 @@ BINARY_SENSORS: tuple[ScreenBeamBinarySensorDescription, ...] = (
     ),
 )
 
+# Needs ethInfo (firmware 1.18+).
+ETHERNET_LINK = ScreenBeamBinarySensorDescription(
+    key="ethernet_link",
+    translation_key="ethernet_link",
+    device_class=BinarySensorDeviceClass.CONNECTIVITY,
+    is_on_fn=lambda s: s.eth_link_up,
+    attrs_fn=lambda d: {"ports": eth_ports_attr(d.status)},
+)
+
 
 async def async_setup_entry(
     hass: HomeAssistant,
@@ -57,7 +68,10 @@ async def async_setup_entry(
 ) -> None:
     """Set up binary sensors for an adapter."""
     coordinator = entry.runtime_data
-    async_add_entities(ScreenBeamBinarySensor(coordinator, d) for d in BINARY_SENSORS)
+    descriptions = list(BINARY_SENSORS)
+    if coordinator.data.status.eth_ports is not None:
+        descriptions.append(ETHERNET_LINK)
+    async_add_entities(ScreenBeamBinarySensor(coordinator, d) for d in descriptions)
 
 
 class ScreenBeamBinarySensor(ScreenBeamEntity, BinarySensorEntity):

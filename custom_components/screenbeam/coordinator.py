@@ -79,6 +79,20 @@ class ScreenBeamCoordinator(DataUpdateCoordinator[ScreenBeamData]):
         except ScreenBeamError as err:
             raise UpdateFailed(str(err)) from err
 
+        if self.data is not None and (
+            status.firmware != self.identity.firmware
+            or (status.eth_ports is None) != (self.data.status.eth_ports is None)
+        ):
+            # Upgraded or downgraded: reload so the device info and the
+            # Ethernet entities (firmware 1.18+) follow the new firmware.
+            _LOGGER.info(
+                "%s now runs firmware %s (was %s); reloading",
+                self.client.host,
+                status.firmware,
+                self.identity.firmware,
+            )
+            self.hass.config_entries.async_schedule_reload(self.config_entry.entry_id)
+
         now = time.monotonic()
         rates = None
         if self._previous is not None:

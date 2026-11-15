@@ -26,14 +26,24 @@ MAC_117 = "d4:47:5a:01:b4:ae"
 MAC_126 = "d4:47:5a:01:b4:b0"
 
 
-def _fixture_call(name: str):
-    replies = json.loads((ROOT / "fixtures" / name).read_text())
+def _replies_call(replies: dict[str, list[str]]):
+    """Answer from captured replies; registers the capture lacks are unsupported."""
 
     async def call(register: str, *data: int) -> list[int]:
         key = register + (":" + ",".join(map(str, data)) if data else "")
+        if key not in replies:
+            raise decode.UnsupportedRegister(key)
         return [int(word, 16) for word in replies[key]]
 
     return call
+
+
+def _replies(name: str) -> dict[str, list[str]]:
+    return json.loads((ROOT / "fixtures" / name).read_text())
+
+
+def _fixture_call(name: str):
+    return _replies_call(_replies(name))
 
 
 def _status(name: str):
@@ -73,6 +83,9 @@ def test_network_coordinator_side() -> None:
     assert status.frames.tx_good > 0 and status.frames.rx_good > 0
     # Enhanced privacy (MoCA 2.x) is on in the captures; legacy privacy is off.
     assert status.encrypted
+    # 1.17.5 answers HTTP 400 to ethInfo: no Ethernet port state, no failure.
+    assert status.eth_ports is None
+    assert not status.eth_link_up and status.eth_speed_mbps is None
 
 
 def test_both_ends_agree() -> None:
@@ -87,17 +100,13 @@ def test_both_ends_agree() -> None:
 
 
 def test_link_down_has_no_rates() -> None:
-    replies = json.loads((ROOT / "fixtures" / "ecb7250_117.json").read_text())
+    replies = _replies("ecb7250_117.json")
     local = list(replies["0/0x15"])
     local[5] = "0x00000000"  # link down
     local[12] = "0x00000001"  # only this node left
     replies["0/0x15"] = local
 
-    async def call(register: str, *data: int) -> list[int]:
-        key = register + (":" + ",".join(map(str, data)) if data else "")
-        return [int(word, 16) for word in replies[key]]
-
-    status = asyncio.run(decode.read_status(call))
+    status = asyncio.run(decode.read_status(_replies_call(replies)))
     assert not status.link_up
     assert status.node_count == 1
     assert status.rates == ()
@@ -123,14 +132,85 @@ def test_counter_reset_is_detected() -> None:
 
 
 def test_encryption_off() -> None:
-    replies = json.loads((ROOT / "fixtures" / "ecb7250_126.json").read_text())
+    replies = _replies("ecb7250_126.json")
     replies["0/0x130D/GET"] = ["0x00000003"]  # enhanced privacy bit (2) clear
+    assert not asyncio.run(decode.read_status(_replies_call(replies))).encrypted
 
-    async def call(register: str, *data: int) -> list[int]:
-        key = register + (":" + ",".join(map(str, data)) if data else "")
-        return [int(word, 16) for word in replies[key]]
 
-    assert not asyncio.run(decode.read_status(call)).encrypted
+# Firmware 1.18.14.1 replies. No adapter here runs 1.18, so these follow the
+# layout in that firmware's own devStatus.html instead of a capture.
+
+
+def _hex(words: list[int]) -> list[str]:
+    return [f"0x{word:08x}" for word in words]
+
+
+def _ascii_words(text: str, count: int) -> list[int]:
+    raw = text.encode().ljust(count * 4, b"\0")
+    return [int.from_bytes(raw[i : i + 4], "big") for i in range(0, len(raw), 4)]
+
+
+def _replies_118(name: str, eth: list[int]) -> dict[str, list[str]]:
+    replies = _replies(name)
+    local = replies["0/0x15"]
+    local[21:28] = _hex(_ascii_words("1.18.14.1", 7))
+    frames = [0] * 108
+    for index, value in {
+        12: 5 << 32 | 123,  # tx good, past the old 32-bit limit
+        30: 7,  # tx bad
+        48: 1,  # tx dropped
+        66: 1 << 32,  # rx good
+        84: 2,  # rx bad
+        102: 3,  # rx dropped
+    }.items():
+        frames[index], frames[index + 1] = value >> 32, value & 0xFFFFFFFF
+    replies["0/0x14:0"] = _hex(frames)
+    replies["1/0x307/GET:0"] = _hex(eth)
+    return replies
+
+
+def test_firmware_118_counters_are_64_bit() -> None:
+    replies = _replies_118("ecb7250_117.json", [1, 4, 1, 0, 5, 0])
+    status = asyncio.run(decode.read_status(_replies_call(replies)))
+    assert status.firmware == "1.18.14.1"
+    assert status.frames == decode.FrameCounters(
+        tx_good=5 << 32 | 123, tx_bad=7, tx_dropped=1, rx_good=1 << 32, rx_bad=2, rx_dropped=3
+    )
+
+
+def test_firmware_118_ethernet_ports() -> None:
+    # Port 0: up at 2.5 Gbit/s full duplex; port 1 (unused SGMII): down.
+    call = _replies_call(_replies_118("ecb7250_117.json", [1, 4, 1, 0, 5, 0]))
+    assert asyncio.run(decode.read_identity(call)).firmware == "1.18.14.1"
+    status = asyncio.run(decode.read_status(call))
+    assert status.eth_ports == (
+        decode.EthPort(link_up=True, speed_mbps=2500, full_duplex=True),
+        decode.EthPort(link_up=False, speed_mbps=None, full_duplex=False),
+    )
+    assert status.eth_link_up
+    assert status.eth_speed_mbps == 2500
+
+
+def test_ethinfo_short_reply_keeps_the_rest() -> None:
+    # A truncated ethInfo reply yields the complete ports only, not a failed poll.
+    replies = _replies_118("ecb7250_117.json", [1, 2, 1, 0])
+    status = asyncio.run(decode.read_status(_replies_call(replies)))
+    assert status.eth_ports == (decode.EthPort(True, 1000, True),)
+    assert status.tx_rate is not None
+
+
+def test_ethernet_negotiating_and_down() -> None:
+    negotiating = decode.parse_eth_info([1, 3, 1, 0, 2, 1], 2)
+    assert negotiating[0].speed_mbps is None  # "Auto-Neg"
+    status = decode.Status(
+        mac=MAC_117, node_id=0, nc_node_id=0, link_up=True, network_version="2.5",
+        firmware="1.18.14.1", node_macs={0: MAC_117}, beacon_channel_mhz=1150,
+        primary_channel_mhz=None, bonded_channels=None, frames=_frames(0, 0), rates=(),
+        encrypted=True, eth_ports=negotiating,
+    )
+    # Port 1 reports 1 Gbit/s but has no link, so it does not count.
+    assert status.eth_link_up and status.eth_speed_mbps is None
+    assert decode.parse_eth_info([1, 2, 1], 2) == (decode.EthPort(True, 1000, True),)
 
 
 if __name__ == "__main__":

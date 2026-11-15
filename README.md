@@ -24,6 +24,12 @@ fixes MoCA link flapping and CVE-2020-25928 (a DNS vulnerability) over 1.17.5. T
 release is 1.17.5. ECB6250 and ECB7250 builds share version numbers but are different images, so only
 install firmware made for your model. The firmware version is shown on the device page.
 
+The integration supports both 1.17.5 and 1.18.14.1. Firmware 1.18 makes the frame counters 64 bits
+wide and adds the Ethernet port's link state and speed, which show up as two extra entities. When an
+adapter's firmware changes, the integration reloads it by itself. Support for 1.18 is based on that
+firmware's own web interface. It has not been tested on an upgraded adapter yet; if you run 1.18,
+please report how it works.
+
 ## Installation
 
 ### Marketplace
@@ -67,13 +73,15 @@ they are in. If an adapter's address changes, use **Reconfigure** on its entry.
 | Last counter reset *(diagnostic)* | When Home Assistant last saw the counters start again from zero, which happens when an adapter restarts or the coax network forms again. Resets while Home Assistant was not polling are missed. |
 | Coax encryption *(diagnostic)* | Whether link encryption (MoCA privacy or enhanced privacy) is on. The adapters ship with a published default network password; change it on both adapters if the coax is shared with neighbours or the street. |
 | Network coordinator *(diagnostic)* | Whether this adapter coordinates the MoCA network. |
+| Ethernet link *(firmware 1.18+)* | On while the adapter's Ethernet port has a link. The `ports` attribute lists link, speed and duplex for each port the chip reports. |
+| Ethernet link speed *(firmware 1.18+)* | Negotiated speed of the Ethernet port in Mbit/s (10, 100, 1000 or 2500). Unknown while the port is down or still negotiating. |
 | MoCA version, beacon channel, primary channel, bonded channels *(diagnostic)* | Network version and the frequencies in use. MoCA 2.5 bonds up to five 100 MHz channels. |
 
 The PHY rate is the speed the two adapters negotiate on the coax, not the actual throughput. A
 rate that drops over time usually points to a bad connector, splitter or cable.
 
-The counters are 32 bits wide and start again from zero when an adapter restarts or the coax
-network forms again. Home Assistant treats them as `total_increasing`, so statistics handle the
+The counters are 32 bits wide (64 bits from firmware 1.18) and start again from zero when an
+adapter restarts or the coax network forms again. Home Assistant treats them as `total_increasing`, so statistics handle the
 resets.
 
 ### Monitoring tips
@@ -94,7 +102,7 @@ The adapters have no API, SNMP or UPnP. Their web interface reads every value wi
 POST to `/ms/<bus>/<register>` behind HTTP basic authentication. This integration makes the same
 requests as the interface's *Device Status* and *PHY Rates* pages and decodes the replies the same
 way: link state from register `0x15`, frame counters from `0x14`, channels from `0x24` and `0x7f`,
-privacy settings from `0x1059` and `0x130D`,
+privacy settings from `0x1059` and `0x130D`, Ethernet port state from `1/0x307` (firmware 1.18+),
 each node's MAC and MoCA version from `0x16`, and the PHY rates from each node's FMR (full mesh
 rate) report in `0x1D`. The decoding lives in [`decode.py`](custom_components/screenbeam/decode.py),
 with tests against replies captured from a pair of ECB7250s in [`tests/`](tests).

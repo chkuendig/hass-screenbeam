@@ -3,12 +3,14 @@
 from __future__ import annotations
 
 import asyncio
+from collections.abc import Iterator
+from contextlib import contextmanager
 from http import HTTPStatus
 import json
 
 import aiohttp
 
-from .decode import Identity, Status, read_identity, read_status
+from .decode import Identity, Status, UnsupportedRegister, read_identity, read_status
 
 _HEADERS = {
     # The adapter's own UI sends JSON under this content type.
@@ -27,6 +29,10 @@ class ScreenBeamConnectionError(ScreenBeamError):
 
 class ScreenBeamAuthError(ScreenBeamError):
     """The adapter rejected the credentials."""
+
+
+class ScreenBeamUnsupportedError(ScreenBeamError, UnsupportedRegister):
+    """The firmware does not know the register."""
 
 
 class ScreenBeamClient:
@@ -66,6 +72,10 @@ class ScreenBeamClient:
                 ):
                     if resp.status == HTTPStatus.UNAUTHORIZED:
                         raise ScreenBeamAuthError(f"{self.host} rejected the credentials")
+                    if resp.status == HTTPStatus.BAD_REQUEST:
+                        raise ScreenBeamUnsupportedError(
+                            f"{self.host} does not support {register}"
+                        )
                     resp.raise_for_status()
                     raw = await resp.read()
             except (aiohttp.ClientError, TimeoutError) as err:
@@ -79,15 +89,19 @@ class ScreenBeamClient:
                 f"Unexpected reply from {url}: {raw[:80]!r}"
             ) from err
 
+    @contextmanager
+    def _short_reply(self) -> Iterator[None]:
+        try:
+            yield
+        except IndexError as err:
+            raise ScreenBeamConnectionError(f"Short reply from {self.host}") from err
+
     async def async_get_identity(self) -> Identity:
         """Read MAC, chipset and firmware."""
-        return await read_identity(self.call)
+        with self._short_reply():
+            return await read_identity(self.call)
 
     async def async_get_status(self) -> Status:
-        """Read link state, PHY rates and counters."""
-        try:
+        """Read link state, PHY rates, counters and Ethernet ports."""
+        with self._short_reply():
             return await read_status(self.call)
-        except IndexError as err:
-            raise ScreenBeamConnectionError(
-                f"Short reply from {self.host}"
-            ) from err

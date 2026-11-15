@@ -3,7 +3,8 @@
 The adapters' web UI reads every value with a POST to ``/ms/<bus>/<register>``
 whose body is ``{"data":[...]}``; the reply is a list of hex words. The word
 offsets and the PHY-rate arithmetic here follow the adapters' own
-``devStatus.html`` and ``phyRates.html``. Everything is read-only.
+``devStatus.html`` and ``phyRates.html`` (firmware 1.17.5 and 1.18.14.1).
+Everything is read-only.
 
 This module has no Home Assistant dependency so it can be tested on its own.
 """
@@ -27,11 +28,25 @@ REG_M25_PHY_INFO = "0/0x7f"
 REG_CHIP_ID = "1/0x303/GET"
 REG_PRIVACY_MASK = "0/0x1059/GET"  # legacy privacy, one bit per band
 REG_ENHANCED_PRIVACY = "0/0x130D/GET"  # MoCA 2.x enhanced privacy, bit 2
+REG_ETH_INFO = "1/0x307/GET"  # Ethernet link/speed/duplex, firmware 1.18+
+
+
+class UnsupportedRegister(Exception):
+    """The firmware does not know the register (it answers HTTP 400)."""
+
 
 # Gigabit Ethernet tops out near 1.49 million frames/s.
 _MAX_PACKETS_PER_S = 2_000_000
 
 CHIPS = {0x15: "MXL370x", 0x16: "MXL371x"}
+# Ethernet (SGMII) ports per chip, as in devStatus.html.
+_ETH_PORTS = {0x15: 1, 0x16: 2}
+
+# ethInfo speed index -> Mbit/s; 3 is "Auto-Neg" (still negotiating), 5 "NA".
+_ETH_SPEED_MBPS = {0: 10, 1: 100, 2: 1000, 4: 2500}
+
+# Firmware 1.18 lengthened the frame-info reply and made its counters 64-bit.
+_FRAME_INFO_64BIT_LEN = 104
 
 # Offset of the primary channel from the beacon channel (localInfo[18]).
 _PRIMARY_OFFSET_MHZ = {0: 0, 1: 25, 2: -25}
@@ -99,11 +114,11 @@ def parse_local_info(words: list[int]) -> LocalInfo:
 
 @dataclass(frozen=True)
 class FrameCounters:
-    """Ethernet frame counters (frame-info register 0x14), 32 bits wide.
+    """Ethernet frame counters (frame-info register 0x14).
 
-    The register also carries what look like millisecond and centisecond
-    clocks, but their word offsets differ between adapters, so they are not
-    used.
+    32 bits wide up to firmware 1.17, 64 bits from 1.18. The register also
+    carries what look like millisecond and centisecond clocks, but their word
+    offsets differ between adapters, so they are not used.
     """
 
     tx_good: int
@@ -115,7 +130,20 @@ class FrameCounters:
 
 
 def parse_frame_info(words: list[int]) -> FrameCounters:
-    """Parse the frame-info register."""
+    """Parse the frame-info register in either firmware layout."""
+    if len(words) >= _FRAME_INFO_64BIT_LEN:
+
+        def u64(index: int) -> int:
+            return (words[index] & 0xFFFFFFFF) << 32 | words[index + 1]
+
+        return FrameCounters(
+            tx_good=u64(12),
+            tx_bad=u64(30),
+            tx_dropped=u64(48),
+            rx_good=u64(66),
+            rx_bad=u64(84),
+            rx_dropped=u64(102),
+        )
     return FrameCounters(
         tx_good=words[6],
         tx_bad=words[15],
@@ -123,6 +151,27 @@ def parse_frame_info(words: list[int]) -> FrameCounters:
         rx_good=words[33],
         rx_bad=words[42],
         rx_dropped=words[51],
+    )
+
+
+@dataclass(frozen=True)
+class EthPort:
+    """Ethernet port state (ethInfo register, firmware 1.18+)."""
+
+    link_up: bool
+    speed_mbps: int | None  # None while negotiating or unknown
+    full_duplex: bool
+
+
+def parse_eth_info(words: list[int], ports: int) -> tuple[EthPort, ...]:
+    """Parse the ethInfo register: three words (link, speed, duplex) per port."""
+    return tuple(
+        EthPort(
+            link_up=words[i * 3] != 0,
+            speed_mbps=_ETH_SPEED_MBPS.get(words[i * 3 + 1]),
+            full_duplex=words[i * 3 + 2] != 0,
+        )
+        for i in range(min(ports, len(words) // 3))
     )
 
 
@@ -270,6 +319,8 @@ class Status:
     frames: FrameCounters
     rates: tuple[PhyRate, ...]
     encrypted: bool
+    # None when the firmware lacks ethInfo (before 1.18).
+    eth_ports: tuple[EthPort, ...] | None = None
 
     @property
     def is_network_coordinator(self) -> bool:
@@ -301,6 +352,19 @@ class Status:
         """Slowest PHY rate from a peer to this adapter (None without peers)."""
         return min(self.rx_rates.values(), default=None)
 
+    @property
+    def eth_link_up(self) -> bool:
+        """Whether any Ethernet port has a link."""
+        return any(port.link_up for port in self.eth_ports or ())
+
+    @property
+    def eth_speed_mbps(self) -> int | None:
+        """Fastest negotiated speed of a linked Ethernet port."""
+        return max(
+            (p.speed_mbps for p in self.eth_ports or () if p.link_up and p.speed_mbps),
+            default=None,
+        )
+
 
 async def _node_info(call: Call, nodes: list[int]) -> tuple[dict[int, int], dict[int, str]]:
     versions: dict[int, int] = {}
@@ -325,8 +389,18 @@ async def read_identity(call: Call) -> Identity:
     )
 
 
+async def _eth_info(call: Call) -> tuple[EthPort, ...] | None:
+    """Ethernet port state, or None when the firmware lacks ethInfo."""
+    try:
+        words = await call(REG_ETH_INFO, 0)
+    except UnsupportedRegister:
+        return None
+    chip = (await call(REG_CHIP_ID, 0))[0]
+    return parse_eth_info(words, _ETH_PORTS.get(chip, 1))
+
+
 async def read_status(call: Call) -> Status:
-    """Read link state, channels, PHY rates and frame counters."""
+    """Read link state, channels, PHY rates, frame counters and Ethernet ports."""
     local = parse_local_info(await call(REG_LOCAL_INFO))
     frames = parse_frame_info(await call(REG_FRAME_INFO, 0))
     phy = await call(REG_PHY_INFO)
@@ -347,6 +421,7 @@ async def read_status(call: Call) -> Status:
 
     privacy_mask = (await call(REG_PRIVACY_MASK))[0]
     enhanced_privacy = (await call(REG_ENHANCED_PRIVACY))[0]
+    eth = await _eth_info(call)
 
     beacon = phy[1]
     offset = _PRIMARY_OFFSET_MHZ.get(local.primary_offset)
@@ -365,4 +440,5 @@ async def read_status(call: Call) -> Status:
         frames=frames,
         rates=tuple(rates),
         encrypted=bool(privacy_mask) or bool(enhanced_privacy >> 2 & 1),
+        eth_ports=eth,
     )

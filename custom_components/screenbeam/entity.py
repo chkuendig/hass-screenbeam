@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from typing import Any
+
 from homeassistant.const import CONF_HOST
 from homeassistant.helpers.device_registry import CONNECTION_NETWORK_MAC, DeviceInfo
 from homeassistant.helpers.entity import EntityDescription
@@ -9,6 +11,20 @@ from homeassistant.helpers.update_coordinator import CoordinatorEntity
 
 from .const import CONF_MODEL, DOMAIN, MANUFACTURER
 from .coordinator import ScreenBeamCoordinator
+from .decode import Status
+
+
+def eth_ports_attr(status: Status) -> list[dict[str, object]]:
+    """Per-port Ethernet state for entity attributes."""
+    return [
+        {
+            "port": index,
+            "link": port.link_up,
+            "speed_mbps": port.speed_mbps if port.link_up else None,
+            "full_duplex": port.full_duplex if port.link_up else None,
+        }
+        for index, port in enumerate(status.eth_ports or ())
+    ]
 
 
 class ScreenBeamEntity(CoordinatorEntity[ScreenBeamCoordinator]):
@@ -36,3 +52,9 @@ class ScreenBeamEntity(CoordinatorEntity[ScreenBeamCoordinator]):
             name=entry.title,
             configuration_url=f"http://{entry.data[CONF_HOST]}/",
         )
+
+    @property
+    def extra_state_attributes(self) -> dict[str, Any] | None:
+        """Return the description's extra attributes, if it has any."""
+        attrs_fn = getattr(self.entity_description, "attrs_fn", None)
+        return None if attrs_fn is None else attrs_fn(self.coordinator.data)

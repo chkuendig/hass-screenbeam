@@ -74,6 +74,9 @@
       },
       "network_coordinator": {
         "name": "Network coordinator"
+      },
+      "ethernet_link": {
+        "name": "Ethernet link"
       }
     },
     "sensor": {
@@ -124,6 +127,9 @@
       },
       "counters_reset": {
         "name": "Last counter reset"
+      },
+      "ethernet_speed": {
+        "name": "Ethernet link speed"
       }
     }
   }
