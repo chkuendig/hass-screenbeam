@@ -6,11 +6,11 @@ Monitor ScreenBeam MoCA (Ethernet over coax) adapters in Home Assistant: whether
 is up, the PHY rate in each direction, and the Ethernet traffic and error counters. Each adapter
 becomes a device. The integration only reads from the adapters and never changes their settings.
 
-![A pair of ScreenBeam ECB6200 adapters](screenbeam.jpg)
+![A pair of ScreenBeam MoCA adapters](screenbeam.jpg)
 
 ## Supported adapters
 
-Tested with a pair of **ECB6200** adapters (MoCA 2.5, MaxLinear MXL371x, firmware 1.17.5).
+Tested with a pair of **ECB7250** adapters (MoCA 2.5, MaxLinear MXL371x, firmware 1.17.5).
 Other ScreenBeam adapters on MaxLinear MXL37xx chipsets use the same web interface and
 should work too. If yours does, please open an issue so it can be listed here.
 
@@ -82,7 +82,7 @@ requests as the interface's *Device Status* and *PHY Rates* pages and decodes th
 way: link state from register `0x15`, frame counters from `0x14`, channels from `0x24` and `0x7f`,
 each node's MAC and MoCA version from `0x16`, and the PHY rates from each node's FMR (full mesh
 rate) report in `0x1D`. The decoding lives in [`decode.py`](custom_components/screenbeam/decode.py),
-with tests against replies captured from a pair of ECB6200s in [`tests/`](tests).
+with tests against replies captured from a pair of ECB7250s in [`tests/`](tests).
 
 ```sh
 python -m pytest tests     # or: python tests/test_decode.py

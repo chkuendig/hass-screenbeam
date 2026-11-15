@@ -1,4 +1,4 @@
-"""Decode tests against replies captured from a pair of ScreenBeam ECB6200 adapters.
+"""Decode tests against replies captured from a pair of ScreenBeam ECB7250 adapters.
 
 Fixtures map "<register>[:<data,...>]" to the raw reply words. The decoder has
 no Home Assistant dependency, so it is loaded straight from its file.
@@ -49,14 +49,14 @@ def test_helpers() -> None:
 
 
 def test_identity() -> None:
-    identity = asyncio.run(decode.read_identity(_fixture_call("ecb6200_117.json")))
+    identity = asyncio.run(decode.read_identity(_fixture_call("ecb7250_117.json")))
     assert identity == decode.Identity(
         mac=MAC_117, chip="MXL371x", node_version="2.5", firmware="1.17.5"
     )
 
 
 def test_network_coordinator_side() -> None:
-    status = _status("ecb6200_117.json")
+    status = _status("ecb7250_117.json")
     assert status.mac == MAC_117
     assert status.link_up
     assert status.is_network_coordinator
@@ -75,8 +75,8 @@ def test_network_coordinator_side() -> None:
 
 def test_both_ends_agree() -> None:
     """Each adapter decodes the whole network's rate table; they must match."""
-    near = _status("ecb6200_117.json")
-    far = _status("ecb6200_126.json")
+    near = _status("ecb7250_117.json")
+    far = _status("ecb7250_126.json")
     assert not far.is_network_coordinator
     assert far.mac == MAC_126
     # Captured a few seconds apart, so allow for normal rate jitter.
@@ -85,7 +85,7 @@ def test_both_ends_agree() -> None:
 
 
 def test_link_down_has_no_rates() -> None:
-    replies = json.loads((ROOT / "fixtures" / "ecb6200_117.json").read_text())
+    replies = json.loads((ROOT / "fixtures" / "ecb7250_117.json").read_text())
     local = list(replies["0/0x15"])
     local[5] = "0x00000000"  # link down
     local[12] = "0x00000001"  # only this node left
