@@ -332,15 +332,23 @@ class Status:
         """Number of adapters on the MoCA network, this one included."""
         return len(self.node_macs)
 
+    # A rate of 0 on a live link is an empty FMR report (the adapters
+    # occasionally return one for a single poll), not a measurement, so the
+    # rate properties skip it; ``rates`` keeps the raw values for diagnostics.
+
     @property
     def tx_rates(self) -> dict[str, int]:
         """PHY rate from this adapter to each peer, by peer MAC."""
-        return {r.to_mac: r.nper_mbps for r in self.rates if r.from_mac == self.mac}
+        return {
+            r.to_mac: r.nper_mbps for r in self.rates if r.from_mac == self.mac and r.nper_mbps
+        }
 
     @property
     def rx_rates(self) -> dict[str, int]:
         """PHY rate from each peer to this adapter, by peer MAC."""
-        return {r.from_mac: r.nper_mbps for r in self.rates if r.to_mac == self.mac}
+        return {
+            r.from_mac: r.nper_mbps for r in self.rates if r.to_mac == self.mac and r.nper_mbps
+        }
 
     @property
     def tx_rate(self) -> int | None:

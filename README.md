@@ -65,7 +65,7 @@ they are in. If an adapter's address changes, use **Reconfigure** on its entry.
 | Entity | Description |
 |---|---|
 | Coax link | On while the adapter is linked to at least one other adapter over the coax. |
-| Coax TX / RX PHY rate | PHY rate to and from the other adapters in Mbit/s. With more than two adapters, this is the slowest link; the `peers` attribute lists the rate for each peer MAC. |
+| Coax TX / RX PHY rate | PHY rate to and from the other adapters in Mbit/s. With more than two adapters, this is the slowest link; the `peers` attribute lists the rate for each peer MAC. The adapters sometimes return an empty rate report for a single poll; that poll shows unknown rather than 0. |
 | Ethernet TX / RX rate | Frames per second sent and received on the adapter's Ethernet port, averaged over one poll interval. Unknown for the first poll after a restart and right after the counters reset. The adapters only count frames, not bytes, so there is no throughput in Mbit/s. |
 | MoCA nodes | Number of adapters on the coax network, this one included. |
 | Ethernet TX / RX packets *(diagnostic)* | Running totals of those frames, for long-term statistics and Prometheus. |

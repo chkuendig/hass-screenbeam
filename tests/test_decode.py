@@ -129,6 +129,20 @@ def test_link_down_has_no_rates() -> None:
     assert status.primary_channel_mhz is None
 
 
+def test_empty_fmr_report_is_no_reading() -> None:
+    """A one-poll all-zero FMR report gives an unknown rate, not 0 Mbit/s."""
+    replies = _replies("ecb7250_117.json")
+    fmr = replies["0/0x1D:1,2"]  # node 0 (this adapter) -> peers
+    replies["0/0x1D:1,2"] = fmr[:10] + ["0x00000000"] * (len(fmr) - 10)
+    status = asyncio.run(decode.read_status(_replies_call(replies)))
+    assert status.link_up
+    assert status.tx_rates == {} and status.tx_rate is None
+    # The other direction comes from the peer's report and is unaffected.
+    assert 1400 < status.rx_rate < 2600
+    # The raw zero stays visible in the rate table (diagnostics).
+    assert any(r.from_mac == MAC_117 and r.nper_mbps == 0 for r in status.rates)
+
+
 def _frames(tx: int, rx: int):
     return decode.FrameCounters(tx, 0, 0, rx, 0, 0)
 
