@@ -24,8 +24,14 @@ from homeassistant.helpers.selector import (
     TextSelectorType,
 )
 from homeassistant.helpers.service_info.dhcp import DhcpServiceInfo
+from homeassistant.util.network import is_ip_address
 
-from .api import ScreenBeamAuthError, ScreenBeamClient, ScreenBeamError
+from .api import (
+    ScreenBeamAuthError,
+    ScreenBeamClient,
+    ScreenBeamError,
+    async_is_moca_adapter,
+)
 from .const import (
     CONF_MODEL,
     DEFAULT_SCAN_INTERVAL,
@@ -49,9 +55,13 @@ CREDENTIALS_SCHEMA = vol.Schema(
 USER_SCHEMA = vol.Schema({vol.Required(CONF_HOST): str}).extend(CREDENTIALS_SCHEMA.schema)
 
 
+def _name(mac: str) -> str:
+    # The last four hex digits, as on the label and in UniFi (VSCO-XXXX).
+    return f"ScreenBeam {mac.replace(':', '')[-4:].upper()}"
+
+
 def _title(identity: Identity) -> str:
-    # Matches the adapter's DHCP hostname, VSCO-XXXX.
-    return f"ScreenBeam {identity.mac.replace(':', '')[-4:].upper()}"
+    return _name(identity.mac)
 
 
 class ScreenBeamConfigFlow(ConfigFlow, domain=DOMAIN):
@@ -93,11 +103,30 @@ class ScreenBeamConfigFlow(ConfigFlow, domain=DOMAIN):
         )
 
     async def async_step_dhcp(self, discovery_info: DhcpServiceInfo) -> ConfigFlowResult:
-        """Handle an adapter seen on DHCP."""
-        await self.async_set_unique_id(format_mac(discovery_info.macaddress))
+        """Handle an adapter seen on DHCP or in a network scan.
+
+        For a configured adapter this keeps the address current: an entry set
+        up with an IP address follows the adapter to its new IP and reloads.
+        One set up with a hostname is left alone; DNS follows the adapter.
+        """
+        unique_id = format_mac(discovery_info.macaddress)
+        await self.async_set_unique_id(unique_id)
+        entry = self.hass.config_entries.async_entry_for_domain_unique_id(DOMAIN, unique_id)
+        if entry is not None and not is_ip_address(entry.data[CONF_HOST]):
+            return self.async_abort(reason="already_configured")
         self._abort_if_unique_id_configured(updates={CONF_HOST: discovery_info.ip})
+        # Unreachable (None) is offered anyway: adapters send their DHCP
+        # request while still booting.
+        if (
+            await async_is_moca_adapter(async_get_clientsession(self.hass), discovery_info.ip)
+            is False
+        ):
+            return self.async_abort(reason="not_moca_adapter")
         self._host = discovery_info.ip
-        self.context["title_placeholders"] = {"host": discovery_info.ip}
+        self.context["title_placeholders"] = {
+            "name": _name(format_mac(discovery_info.macaddress)),
+            "host": discovery_info.ip,
+        }
         return await self.async_step_discovery_confirm()
 
     async def async_step_discovery_confirm(
@@ -110,6 +139,9 @@ class ScreenBeamConfigFlow(ConfigFlow, domain=DOMAIN):
                 self._host, user_input[CONF_USERNAME], user_input[CONF_PASSWORD]
             )
             if identity:
+                if format_mac(identity.mac) != self.unique_id:
+                    # The address now belongs to another adapter.
+                    return self.async_abort(reason="unique_id_mismatch")
                 return self.async_create_entry(
                     title=_title(identity), data={CONF_HOST: self._host, **user_input}
                 )

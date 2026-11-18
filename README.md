@@ -46,19 +46,26 @@ configuration and restart Home Assistant.
 
 ## Configuration
 
-Adapters announce themselves over DHCP (hostname `VSCO-XXXX`), so Home Assistant usually offers
-them under **Settings → Devices & services → Discovered**. To add one by hand, go to
+Home Assistant recognises the adapters by ScreenBeam's MAC prefix (`D4:47:5A`) when they request
+an address over DHCP, or within an hour through its network scan, and offers them under
+**Settings → Devices & services → Discovered**. Before offering one it checks, without logging in,
+that the device is a MoCA adapter and not another ScreenBeam product. To add one by hand, go to
 **Add integration → ScreenBeam MoCA**. Add each adapter of a pair separately.
 
 | Setting | Description |
 |---|---|
-| Host | IP address of the adapter's web interface. Give the adapters fixed DHCP leases. |
+| Host | IP address of the adapter's web interface. |
 | Username / Password | The login of the adapter's web interface (the username is usually `admin`). |
 | Model (option) | The model printed on the label, such as ECB7250. The adapters do not report their model, so until it is set the device shows "MoCA 2.5 adapter". |
 | Poll interval (option) | How often to read the adapter, 10–3600 s, default 60 s. One poll is about a dozen small requests and takes about a second. |
 
-Each device is named `ScreenBeam XXXX` after its DHCP hostname. Rename the devices after the room
-they are in. If an adapter's address changes, use **Reconfigure** on its entry.
+Each device is named `ScreenBeam XXXX` after the last four digits of its MAC address (the label
+and UniFi show it as `VSCO-XXXX`). Rename the devices after the room they are in.
+
+If an adapter gets a new IP address, its entry follows it: Home Assistant spots the adapter's MAC at
+the new address (right away from its DHCP request, otherwise at the next hourly network scan) and
+reloads the entry there. This applies to entries set up with an IP address; one set up with a
+hostname keeps it. **Reconfigure** on the entry changes the address or login by hand.
 
 ## Entities
 

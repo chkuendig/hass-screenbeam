@@ -35,6 +35,34 @@ class ScreenBeamUnsupportedError(ScreenBeamError, UnsupportedRegister):
     """The firmware does not know the register."""
 
 
+async def async_is_moca_adapter(
+    session: aiohttp.ClientSession, host: str, *, timeout: float = 5.0
+) -> bool | None:
+    """Whether ``host`` looks like a ScreenBeam MoCA adapter, without logging in.
+
+    The MXL37xx adapters answer an unauthenticated request to their register
+    API with HTTP 401 from an InterNiche web server; ScreenBeam's other
+    products (wireless display receivers) share the MAC prefix but not that
+    API. None when the host does not answer (an adapter that is still booting).
+    """
+    try:
+        async with (
+            asyncio.timeout(timeout),
+            session.post(
+                f"http://{host}/ms/0/0x15",
+                data='{"data":[]}',
+                headers=_HEADERS,
+                allow_redirects=False,
+            ) as resp,
+        ):
+            return (
+                resp.status == HTTPStatus.UNAUTHORIZED
+                and "interniche" in resp.headers.get("Server", "").lower()
+            )
+    except (aiohttp.ClientError, TimeoutError):
+        return None
+
+
 class ScreenBeamClient:
     """Read-only client for one adapter.
 

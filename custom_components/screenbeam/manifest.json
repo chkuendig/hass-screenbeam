@@ -7,7 +7,6 @@
   "config_flow": true,
   "dhcp": [
     {
-      "hostname": "vsco-*",
       "macaddress": "D4475A*"
     }
   ],
@@ -19,5 +18,5 @@
     "custom_components.screenbeam"
   ],
   "requirements": [],
-  "version": "0.3.2"
+  "version": "0.4.0"
 }

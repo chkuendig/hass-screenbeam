@@ -1,6 +1,6 @@
 {
   "config": {
-    "flow_title": "{host}",
+    "flow_title": "{name} ({host})",
     "step": {
       "user": {
         "description": "Connect to a ScreenBeam MoCA (Ethernet over coax) adapter. Add each adapter of the pair separately.",
@@ -47,7 +47,8 @@
       "already_configured": "[%key:common::config_flow::abort::already_configured_device%]",
       "reauth_successful": "[%key:common::config_flow::abort::reauth_successful%]",
       "reconfigure_successful": "[%key:common::config_flow::abort::reconfigure_successful%]",
-      "unique_id_mismatch": "This address belongs to a different adapter."
+      "unique_id_mismatch": "This address belongs to a different adapter.",
+      "not_moca_adapter": "This ScreenBeam device is not a MoCA adapter."
     }
   },
   "options": {
